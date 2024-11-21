@@ -19,7 +19,8 @@ aldex.clr.function(
   verbose = FALSE,
   useMC = FALSE,
   summarizedExperiment = NULL,
-  gamma = NULL
+  gamma = NULL,
+  prior = 0.5
 )
 }
 \arguments{
@@ -70,6 +71,13 @@ will be used assuming that matrix denotes the scale samples. If a numeric is
 supplied, scale simulation will be applied by relaxing the geometric mean
 assumption with the numeric representing the standard deviation of the
 scale distribution.}
+
+\item{prior}{The Dirichlet prior (pseudocount) to use. Default is 0.5. 
+\code{prior} should be a single numeric value to add to reads. For anvanced use cases,
+\code{prior} may also be a numeric matrix the same dimmensions as \code{reads}, where
+row d, column n specifys the prior for taxon/gene d in sample n. Additionally,
+\code{prior} can be a 3d array with an extra dimmension the same as mc.samples to change
+the prior for different monte carlo samples.}
 }
 \value{
 The object produced by the \code{clr} function contains the log-ratio transformed

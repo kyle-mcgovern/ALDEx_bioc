@@ -48,6 +48,8 @@
 #'  running. Useful for debugging errors on large datasets. Applies to
 #'  \code{effect = TRUE}.
 #' @param gamma A numeric. The standard deviation on the within sample variation.
+#' @param prior A numeric (Default: 0.5). The prior (i.e., pseudocount) to add to
+#'  reads.
 #' @param ... Arguments to embedded method (e.g., \code{glm} or \code{cor.test}).
 #'
 #' @return Returns a number of values that depends on the set of options.
@@ -93,14 +95,15 @@
 #'            test="t", effect=TRUE, paired.test=FALSE)
 aldex <- function(reads, conditions, mc.samples=128, test="t", effect=TRUE, CI=FALSE,
                   include.sample.summary=FALSE, verbose=FALSE, paired.test=FALSE,
-                  denom="all", iterate=FALSE, gamma = NULL,  ...){
+                  denom="all", iterate=FALSE, gamma = NULL, prior=0.5, ...){
 
   if(missing(conditions)) stop("The 'conditions' argument is needed for this analysis.")
 
   # wrapper function for the entire set of
   message("aldex.clr: generating Monte-Carlo instances and clr values")
   x <- aldex.clr(reads=reads, conds=conditions, mc.samples=mc.samples,
-                 denom=denom, verbose=verbose, useMC=FALSE, gamma = gamma)
+                 denom=denom, verbose=verbose, useMC=FALSE, gamma = gamma,
+                 prior=prior)
 
   if(test == "t") {
 

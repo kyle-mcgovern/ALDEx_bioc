@@ -34,4 +34,6 @@ setGeneric("getDenom", function(.object) standardGeneric("getDenom"))
 
 setGeneric("getScaleSamples", function(.object) standardGeneric("getScaleSamples"))
 
-setGeneric("aldex.clr", function(reads, conds, mc.samples=128, denom="all", verbose=FALSE, useMC=FALSE, gamma = NULL) standardGeneric("aldex.clr"), signature=c("reads"))
+setGeneric("getPrior", function(.object) standardGeneric("getPrior"))
+
+setGeneric("aldex.clr", function(reads, conds, mc.samples=128, denom="all", verbose=FALSE, useMC=FALSE, gamma = NULL, prior=0.5) standardGeneric("aldex.clr"), signature=c("reads"))

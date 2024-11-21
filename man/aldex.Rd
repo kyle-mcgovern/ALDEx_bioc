@@ -17,6 +17,7 @@ aldex(
   denom = "all",
   iterate = FALSE,
   gamma = NULL,
+  prior = 0.5,
   ...
 )
 }
@@ -67,6 +68,9 @@ this will use the results from an initial "t" routine to seed the reference
 (i.e., denominator of Geometric Mean calculation) for a second "t" routine.}
 
 \item{gamma}{A numeric. The standard deviation on the within sample variation.}
+
+\item{prior}{A numeric (Default: 0.5). The prior (i.e., pseudocount) to add to
+reads.}
 
 \item{...}{Arguments to embedded method (e.g., \code{glm} or \code{cor.test}).}
 }

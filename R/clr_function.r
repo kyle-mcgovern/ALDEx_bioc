@@ -43,6 +43,12 @@
 #' assumption with the numeric representing the standard deviation of the
 #' scale distribution.
 #' @param summarizedExperiment must be set to TRUE if input data are in this format.
+#' @param prior The Dirichlet prior (pseudocount) to use. Default is 0.5. 
+#' \code{prior} should be a single numeric value to add to reads. For anvanced use cases,
+#' \code{prior} may also be a numeric matrix the same dimmensions as \code{reads}, where
+#' row d, column n specifys the prior for taxon/gene d in sample n. Additionally,
+#' \code{prior} can be a 3d array with an extra dimmension the same as mc.samples to change
+#' the prior for different monte carlo samples.
 #'
 #' @return The object produced by the \code{clr} function contains the log-ratio transformed
 #' values for each Monte-Carlo Dirichlet instance, which can be accessed through
@@ -69,7 +75,8 @@
 #'    x <- aldex.clr(selex, conds, mc.samples=4, gamma=NULL, verbose=FALSE)
 #' @export
 aldex.clr.function <- function( reads, conds, mc.samples=128, denom="all", 
-    verbose=FALSE, useMC=FALSE, summarizedExperiment=NULL, gamma = NULL) {
+    verbose=FALSE, useMC=FALSE, summarizedExperiment=NULL, gamma = NULL,
+    prior=0.5) {
 #  invocation:
 #  use selex dataset from ALDEx2 library
 #  x <- aldex.clr( reads, conds, mc.samples=128, denom="all", verbose=FALSE, useMC=FALSE )
@@ -151,6 +158,29 @@ aldex.clr.function <- function( reads, conds, mc.samples=128, denom="all",
     print(ncol(reads))
     stop("mismatch between number of samples and condition vector")
   }
+    
+    if(is.numeric(prior)) {
+        if(is.matrix(prior)) {
+            if((ncol(prior)!=ncol(reads))|(nrow(prior)!=nrow(reads))) {
+                stop("prior is a matrix, but it does not have the same dimensions as the reads matrix")
+            }
+        } else if(is.array(prior)) {
+            if((dim(prior)[1]!=nrow(reads))|(dim(prior)[2]!=ncol(reads))|(dim(prior)[3]!=mc.samples)) {
+                stop("prior is an array, but dim(prior) is not (nrow(reads), ncol(reads), mc.samples)")
+            }
+        } else if(length(prior)!=1) {
+            stop("prior should be a single numeric value, or a numeric matrix or array")
+        }
+    } else {
+        stop("prior must be numeric")
+    }         
+
+    if(any(prior<0.1)) {
+        warning("prior contains value(s) < 0.1, this could lead to extremly high posterior sampling variance")
+    } else if(any(prior<0.5)) {
+        warning("prior contains value(s) < 0.5, this could lead to high posterior sampling variance")
+    }
+
 
     # make sure that the multicore package is in scope and return if available
     has.BiocParallel <- FALSE
@@ -171,10 +201,15 @@ aldex.clr.function <- function( reads, conds, mc.samples=128, denom="all",
 
     # remove any row in which the sum of the row is 0
     z <- as.numeric(apply(reads, 1, sum))
-    reads <- as.data.frame( reads[(which(z > minsum)),]  )
+    keep_rows <- which(z > minsum)
+    reads <- as.data.frame(reads[keep_rows,])
+    if(is.matrix(prior)) {
+        prior <- prior[keep_rows,]
+    } else if (is.array(prior)) {
+        prior <- prior[keep_rows,,]
+    }
 
     if (verbose) message("removed rows with sums equal to zero")
-
 
     #  SANITY CHECKS ON THE DATA INPUT
     if ( any( round(reads) != reads ) ) stop("not all reads are integers")
@@ -191,11 +226,6 @@ aldex.clr.function <- function( reads, conds, mc.samples=128, denom="all",
     if ( length(colnames(reads)) != length(unique(colnames(reads))) ) stop ("col names are not unique")
     if ( mc.samples < 128 ) warning("values are unreliable when estimated with so few MC smps")
 
-    # add a prior expection to all remaining reads that are 0
-    # this should be by a Count Zero Multiplicative approach, but in practice
-    # this is not necessary because of the large number of features
-    prior <- 0.5
-
     # This extracts the set of features to be used in the geometric mean computation
     # returns a list of features
     if(is.null(gamma)){
@@ -204,9 +234,7 @@ aldex.clr.function <- function( reads, conds, mc.samples=128, denom="all",
     } else{
       feature.subset <- vector()
     }
-
-    reads <- reads + prior
-
+    
 if (verbose == TRUE) message("data format is OK")
 
     # ---------------------------------------------------------------------
@@ -222,20 +250,29 @@ if (verbose == TRUE) message("data format is OK")
     #total number of reads per sample
 
     # environment test, runs in multicore if possible
+    # lapply_use_func is defined to save writing code twice
     if (has.BiocParallel){
-        p <- bplapply( reads ,
-            function(col) {
-                q <- t( rdirichlet( mc.samples, col ) ) ;
-                rownames(q) <- rn ;
-                q })
-        names(p) <- names(reads)
+        lapply_use_func <- bplapply
+    } else {
+        lapply_use_func <- lapply
     }
-    else{
-        p <- lapply( reads ,
-            function(col) {
-                q <- t( rdirichlet( mc.samples, col ) ) ;
-                rownames(q) <- rn ; q } )
-    }
+    p <- lapply_use_func(seq_along(reads), function(col_i) {
+            mat <- c()
+            for(mc in 1:mc.samples) { 
+                if(length(prior)==1) {
+                    mat <- cbind(mat, c(rdirichlet(1, reads[,col_i]+prior)))
+                } else if(is.matrix(prior)) {
+                    mat <- cbind(mat, c(rdirichlet(1, reads[,col_i]+prior[,col_i])))
+                } else if(is.array(prior)) {
+                    mat <- cbind(mat, c(rdirichlet(1, reads[,col_i]+prior[,col_i,mc])))
+                } else {
+                    stop("Unforeseen error with prior argument")
+                }
+            }
+            row.names(mat) <- row.names(reads)
+            mat
+    })
+    names(p) <- names(reads)
 
     # sanity check on the data, should never fail
     for ( i in 1:length(p) ) {
@@ -347,7 +384,7 @@ if (verbose == TRUE) message("dirichlet samples complete")
       if (verbose == TRUE) message("transformation complete")
     }
     
-    return(new("aldex.clr",reads=reads,mc.samples=mc.samples,conds=conds,denom=feature.subset,verbose=verbose,useMC=useMC,dirichletData=p,analysisData=l2p, scaleSamps = scale_samples))
+    return(new("aldex.clr",reads=reads,mc.samples=mc.samples,conds=conds,denom=feature.subset,verbose=verbose,useMC=useMC,dirichletData=p,analysisData=l2p, scaleSamps = scale_samples, prior=prior))
 }
 
 
@@ -387,8 +424,10 @@ setMethod("getConditions", signature(.object="aldex.clr"), function(.object) .ob
 
 setMethod("getScaleSamples", signature(.object="aldex.clr"), function(.object) .object@scaleSamps)
 
-setMethod("aldex.clr", signature(reads="data.frame"), function(reads, conds, mc.samples=128, denom="all", verbose=FALSE, useMC=FALSE, gamma) aldex.clr.function(reads, conds, mc.samples, denom, verbose, useMC, summarizedExperiment=FALSE, gamma))
+setMethod("getPrior", signature(.object="aldex.clr"), function(.object) .object@prior)
 
-setMethod("aldex.clr", signature(reads="matrix"), function(reads, conds, mc.samples=128, denom="all", verbose=FALSE, useMC=FALSE, gamma) aldex.clr.function(as.data.frame(reads), conds, mc.samples, denom, verbose, useMC, summarizedExperiment=FALSE, gamma))
+setMethod("aldex.clr", signature(reads="data.frame"), function(reads, conds, mc.samples=128, denom="all", verbose=FALSE, useMC=FALSE, gamma, prior) aldex.clr.function(reads, conds, mc.samples, denom, verbose, useMC, summarizedExperiment=FALSE, gamma, prior))
 
-setMethod("aldex.clr", signature(reads="RangedSummarizedExperiment"), function(reads, conds, mc.samples=128, denom="all", verbose=FALSE, useMC=FALSE, gamma) aldex.clr.function(reads, conds, mc.samples, denom, verbose, useMC, summarizedExperiment=TRUE, gamma))
+setMethod("aldex.clr", signature(reads="matrix"), function(reads, conds, mc.samples=128, denom="all", verbose=FALSE, useMC=FALSE, gamma, prior) aldex.clr.function(as.data.frame(reads), conds, mc.samples, denom, verbose, useMC, summarizedExperiment=FALSE, gamma, prior))
+
+setMethod("aldex.clr", signature(reads="RangedSummarizedExperiment"), function(reads, conds, mc.samples=128, denom="all", verbose=FALSE, useMC=FALSE, gamma, prior) aldex.clr.function(reads, conds, mc.samples, denom, verbose, useMC, summarizedExperiment=TRUE, gamma, prior))
